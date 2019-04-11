@@ -1,0 +1,7 @@
+[package]
+name = "scheme-rust"
+version = "0.1.0"
+authors = ["ezksd <ezksdo@gmail.com>"]
+edition = "2018"
+
+[dependencies]
