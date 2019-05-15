@@ -1,111 +1,77 @@
 #![allow(dead_code)]
 use std::marker::PhantomData;
-mod chars;
-pub trait Parser<I: ?Sized, O>
-where
-    Self: Sized,
-{
-    fn parse<'a>(&self, i: &'a I) -> Option<(O, &'a I)>;
-    fn map<B, F>(self, f: F) -> Map<I, O, B, Self, F>
+trait Parser {
+    type Input;
+    type Output;
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)>;
+    fn map<B, F>(self, f: F) -> Map<Self, B, F>
     where
-        F: Fn(O) -> B,
+        Self: Sized,
+        F: Fn(Self::Output) -> B,
     {
         Map(self, f, PhantomData)
     }
-
-    fn flat_map<B, F, Q>(self, f: F) -> FlatMap<I, O, B, Self, Q, F>
-    where
-        Q: Parser<I, B>,
-        F: Fn(O) -> Q,
-    {
-        FlatMap(self, f, PhantomData)
-    }
-
-    fn filter<F>(self, f: F) -> Filter<I, O, Self, F>
-    where
-        F: Fn(&O) -> bool,
-    {
-        Filter(self, f, PhantomData)
-    }
-
-    fn many(self) -> Many<I, O, Self> {
-        Many(self, PhantomData)
-    }
-
-    // fn Some<F>(self) -> Filter<I, O, Many<I,O,Self>, F>
-    // where F: Fn(&O) -> bool
-    // {
-    //     self.many().filter(|v| v.len != 0)
-    // }
-}
-
-pub struct Map<I: ?Sized, O, B, P, F>(P, F, PhantomData<(Box<I>, O, B)>)
-where
-    P: Parser<I, O>,
-    F: Fn(O) -> B;
-
-impl<I, O, B, P, F> Parser<I, B> for Map<I, O, B, P, F>
-where
-    P: Parser<I, O>,
-    F: Fn(O) -> B,
-{
-    fn parse<'a>(&self, i: &'a I) -> Option<(B, &'a I)> {
-        self.0.parse(i).map(|(o, i)| ((self.1)(o), i))
+    fn flatMap<B,F>(self,f: F) -> FlatMap<Self,B,F>
+    where Self: Sized, F: Fn(Self::Output) -> Box<dyn Parser<Input=Self::Input,Output=B>>,{
+        FlatMap(self,f,PhantomData)
     }
 }
 
-pub struct FlatMap<I: ?Sized, O, B, P, Q, F>(P, F, PhantomData<(Box<I>, O, B, Q)>)
-where
-    P: Parser<I, O>,
-    Q: Parser<I, B>,
-    F: Fn(O) -> Q;
+struct Pure<I, A>(Box<A>, PhantomData<I>);
 
-impl<I, O, B, P, Q, F> Parser<I, B> for FlatMap<I, O, B, P, Q, F>
-where
-    P: Parser<I, O>,
-    Q: Parser<I, B>,
-    F: Fn(O) -> Q,
-{
-    fn parse<'a>(&self, i: &'a I) -> Option<(B, &'a I)> {
-        self.0.parse(i).and_then(|(o, i1)| {
-            let p = (self.1)(o);
-            p.parse(i1)
-        })
+impl<I, A: Clone> Parser for Pure<I, A> {
+    type Input = I;
+    type Output = A;
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        Some(((*self.0).clone(), input))
     }
 }
 
-pub struct Filter<I: ?Sized, O, P, F>(P, F, PhantomData<(Box<I>, O)>)
-where
-    P: Parser<I, O>,
-    F: Fn(&O) -> bool;
+fn pure<A: Clone, I>(a: A) -> Pure<I, A> {
+    Pure(Box::new(a.clone()), PhantomData)
+}
 
-impl<I, O, P, F> Parser<I, O> for Filter<I, O, P, F>
-where
-    P: Parser<I, O>,
-    F: Fn(&O) -> bool,
-{
-    fn parse<'a>(&self, i: &'a I) -> Option<(O, &'a I)> {
-        self.0
-            .parse(i)
-            .and_then(|(o, i)| if self.1(&o) { Some((o, i)) } else { None })
+struct Empty<I, O>(PhantomData<(I, O)>);
+impl<I, O> Parser for Empty<I, O> {
+    type Input = I;
+    type Output = O;
+    fn parse(&self, _: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        None
     }
 }
 
-pub struct Many<I: ?Sized, O, P>(P, PhantomData<(Box<I>, O)>)
-where
-    P: Parser<I, O>;
+fn empty<I, O>() -> Empty<I, O> {
+    Empty(PhantomData)
+}
 
-impl<I, O, P> Parser<I, Vec<O>> for Many<I, O, P>
+struct Map<P, B, F>(P, F, PhantomData<B>)
 where
-    P: Parser<I, O>,
+    P: Parser,
+    F: Fn(P::Output) -> B;
+
+impl<P, B, F> Parser for Map<P, B, F>
+where
+    P: Parser,
+    F: Fn(P::Output) -> B,
 {
-    fn parse<'a>(&self, i: &'a I) -> Option<(Vec<O>, &'a I)> {
-        let mut v = Vec::new();
-        let mut t = i;
-        while let Some((o, i)) = self.0.parse(t) {
-            v.push(o);
-            t = i;
-        }
-        Some((v, t))
+    type Input = P::Input;
+    type Output = B;
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        self.0.parse(input).map(|(o, i)| ((self.1)(o), i))
+    }
+}
+
+struct FlatMap<P, B, F>(P, F, PhantomData<B>)
+where
+    P: Parser,
+    F: Fn(P::Output) -> Box<dyn Parser<Input = P::Input, Output = B>>;
+
+impl<P,B,F> Parser for FlatMap<P,B,F>
+where P: Parser, F: Fn(P::Output) -> Box<dyn Parser<Input = P::Input,Output = B>>
+{
+    type Input = P::Input;
+    type Output = B;
+    fn parse(&self,input: Self::Input) -> Option<(Self::Output,Self::Input)>{
+        self.0.parse(input).and_then(|(o1,i1)| (self.1)(o1).parse(i1))
     }
 }

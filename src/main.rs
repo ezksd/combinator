@@ -1,3 +1,3 @@
-fn main() {
-    // item().parse("123")
+fn main(){
+    print!("helloworld")
 }
