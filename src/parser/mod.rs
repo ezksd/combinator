@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 use std::marker::PhantomData;
-trait Parser {
+
+mod chars;
+pub trait Parser {
     type Input;
     type Output;
     fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)>;
@@ -12,30 +14,18 @@ trait Parser {
         Map(self, f, PhantomData)
     }
 
-    fn flat_map<B,F>(&'_ self,f: F) -> FlatMap<Self,B,F>
-    where Self: Sized, F: Fn(Self::Output) -> Box<dyn Parser<Input=Self::Input,Output=B>>,{
-        FlatMap(self,f,PhantomData)
+    fn flat_map<B, F>(&'_ self, f: F) -> FlatMap<Self, B, F>
+    where
+        Self: Sized,
+        F: Fn(Self::Output) -> Box<dyn Parser<Input = Self::Input, Output = B>>,
+    {
+        FlatMap(self, f, PhantomData)
     }
 }
 
-impl <I,O: Clone> Parser<Input=I,Output=O> where Self:Sized{
-    fn pure(a: O) -> Pure<I,O>{
-        Pure(Box::new(a.clone()),PhantomData)
-    }
-}
+pub struct Map<'a, P, B, F>(&'a P, F, PhantomData<B>);
 
-impl <I,O> Parser<Input = I,Output=O> where Self: Sized{
-    fn empty() -> Empty<I,O>{
-        Empty(PhantomData)
-    }
-}
-
-struct Map<'a,P, B, F>(&'a P, F, PhantomData<B>)
-where
-    P: Parser,
-    F: Fn(P::Output) -> B;
-
-impl<P, B, F> Parser for Map<'_,P, B, F>
+impl<P, B, F> Parser for Map<'_, P, B, F>
 where
     P: Parser,
     F: Fn(P::Output) -> B,
@@ -47,7 +37,10 @@ where
     }
 }
 
-struct Pure<I, A>(Box<A>, PhantomData<I>);
+pub struct Pure<I, A>(Box<A>, PhantomData<I>);
+pub fn pure<I, A: Clone>(a: A) -> Pure<I, A> {
+    Pure(Box::new(a.clone()), PhantomData)
+}
 
 impl<I, A: Clone> Parser for Pure<I, A> {
     type Input = I;
@@ -57,11 +50,10 @@ impl<I, A: Clone> Parser for Pure<I, A> {
     }
 }
 
-fn pure<A: Clone, I>(a: A) -> Pure<I, A> {
-    Pure(Box::new(a.clone()), PhantomData)
+pub struct Empty<I, O>(PhantomData<(I, O)>);
+pub fn empty<I, O>() -> Empty<I, O> {
+    Empty(PhantomData)
 }
-
-struct Empty<I, O>(PhantomData<(I, O)>);
 impl<I, O> Parser for Empty<I, O> {
     type Input = I;
     type Output = O;
@@ -70,22 +62,18 @@ impl<I, O> Parser for Empty<I, O> {
     }
 }
 
-fn empty<I, O>() -> Empty<I, O> {
-    Empty(PhantomData)
-}
+pub struct FlatMap<'a, P, B, F>(&'a P, F, PhantomData<B>);
 
-
-struct FlatMap<'a,P, B, F>(&'a P, F, PhantomData<B>)
+impl<P, B, F> Parser for FlatMap<'_, P, B, F>
 where
     P: Parser,
-    F: Fn(P::Output) -> Box<dyn Parser<Input = P::Input, Output = B>>;
-
-impl<P,B,F> Parser for FlatMap<'_,P,B,F>
-where P: Parser, F: Fn(P::Output) -> Box<dyn Parser<Input = P::Input,Output = B>>
+    F: Fn(P::Output) -> Box<dyn Parser<Input = P::Input, Output = B>>,
 {
     type Input = P::Input;
     type Output = B;
-    fn parse(&self,input: Self::Input) -> Option<(Self::Output,Self::Input)>{
-        self.0.parse(input).and_then(|(o1,i1)| (self.1)(o1).parse(i1))
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        self.0
+            .parse(input)
+            .and_then(|(o1, i1)| (self.1)(o1).parse(i1))
     }
 }
