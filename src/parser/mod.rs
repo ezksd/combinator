@@ -21,6 +21,13 @@ pub trait Parser {
     {
         FlatMap(self, f, PhantomData)
     }
+
+    fn many(&self) -> Many<Self>
+    where
+        Self: Sized,
+    {
+        Many(self)
+    }
 }
 
 pub struct Map<'a, P, B, F>(&'a P, F, PhantomData<B>);
@@ -77,3 +84,51 @@ where
             .and_then(|(o1, i1)| (self.1)(o1).parse(i1))
     }
 }
+
+pub struct Put<I>(I);
+impl<I: Clone> Parser for Put<I> {
+    type Input = I;
+    type Output = ();
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        Some(((), input))
+    }
+}
+
+pub struct Get<I>(PhantomData<I>);
+impl<I: Clone> Parser for Get<I> {
+    type Input = I;
+    type Output = I;
+
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        Some((input.clone(), input))
+    }
+}
+
+pub fn put<I>(i: I) -> Put<I> {
+    Put(i)
+}
+
+pub fn get<I>() -> Get<I> {
+    Get(PhantomData)
+}
+
+pub struct Many<'a, P>(&'a P);
+
+impl<'a, P, I: Clone, O> Parser for Many<'a, P>
+where
+    P: Parser<Input = I, Output = O>,
+{
+    type Input = P::Input;
+    type Output = Vec<P::Output>;
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        let mut v = Vec::new();
+        let mut t = input;
+        while let Some((o, i)) = self.0.parse(t.clone()) {
+            v.push(o);
+            t = i
+        }
+        return Some((v, t.clone()));
+    }
+}
+
+//pub fn many<p>

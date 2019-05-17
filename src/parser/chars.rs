@@ -7,16 +7,18 @@ pub static ITEM: Item<'static> = Item(PhantomData);
 pub fn item<'a>() -> &'static Item<'a> {
     &ITEM
 }
-pub fn char<'a>(
-    c: char,
-) -> FlatMap<
-    'static,
-    Item<'a>,
-    char,
-    impl Fn(char) -> Box<dyn Parser<Input = &'a str, Output = char>>,
-> {
+
+type CharParser<'a> = Box<dyn Parser<Input = &'a str, Output = char>>;
+pub fn char<'a>(c: char) -> FlatMap<'static, Item<'a>, char, impl Fn(char) -> CharParser<'a>> {
+    sat(move |x| *x == c)
+}
+
+pub fn sat<'a, F>(f: F) -> FlatMap<'static, Item<'a>, char, impl Fn(char) -> CharParser<'a>>
+where
+    F: Fn(&char) -> bool,
+{
     item().flat_map(move |x| {
-        if x == c {
+        if f(&x) {
             Box::new(pure(x))
         } else {
             Box::new(empty())
@@ -24,8 +26,11 @@ pub fn char<'a>(
     })
 }
 
+type StringParser<'a> = Box<dyn Parser<Input = &'a str, Output = &'a str>>;
+
 impl<'a> Parser for Item<'a> {
     type Input = &'a str;
+
     type Output = char;
     fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
         let mut chars = input.chars();
