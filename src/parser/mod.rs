@@ -43,7 +43,6 @@ pub fn and<'a,I,O>(p:&'a dyn Parser<Input=I,Output=O>,q: &'a dyn Parser<Input=I,
     And(p,q)
 }
 
-
 pub struct Map<'a, P, B, F>(&'a P, F, PhantomData<B>);
 impl<P, B, F> Parser for Map<'_, P, B, F>
 where

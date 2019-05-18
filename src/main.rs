@@ -1,6 +1,3 @@
-// use parser::chars::*;
-fn main() {
-
-    //    let x = "123";
-
+fn main(){
+    print!("hello,world" )
 }
