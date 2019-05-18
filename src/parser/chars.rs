@@ -1,9 +1,9 @@
 use super::*;
+use crate::{pure,empty};
 pub struct Item<'a>(PhantomData<&'a ()>);
 
-pub static ITEM: Item<'static> = Item(PhantomData);
-pub fn item<'a>() -> &'static Item<'a> {
-    &ITEM
+pub fn item<'a>() -> Item<'a> {
+    Item(PhantomData)
 }
 pub fn chr<'a>(c: char) -> impl Parser<Input=&'a str,Output=char> {
     sat(move |x| *x == c)
@@ -19,9 +19,10 @@ where
 {
     item().flat_map(move |x| {
         if f(&x) {
-            Box::new(pure(x))
+            pure!(x)
+            // Box::new(pure(x))
         } else {
-            Box::new(empty())
+            empty!()
         }
     })
 }
@@ -44,17 +45,12 @@ impl<'a> Parser for Item<'a> {
 
 #[cfg(test)]
 mod test {
-    use crate::parser::chars::*;
 
+    use crate::*;
+    use super::*;
     #[test]
     fn test() {
-        let x = item().parse("123");
-        assert_eq!(x, Some(('1', "23")));
-    }
-
-    #[test]
-    fn test1(){
-        let x = many(&chr('a')).map(collect).parse("aaabc");
-        assert_eq!(x,Some((String::from("aaa"),"bc")));
+        let x = some!(chr('a')).map(|x| x).parse("abc");
+        assert_eq!(x, Some((vec!['a'],"bc")));
     }
 }

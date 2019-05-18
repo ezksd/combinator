@@ -6,7 +6,7 @@ pub trait Parser {
     type Input;
     type Output;
     fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)>;
-    fn map<B, F>(&'_ self, f: F) -> Map<Self, B, F>
+    fn map<B, F>(self, f: F) -> Map<Self, B, F>
     where
         Self: Sized,
         F: Fn(Self::Output) -> B,
@@ -14,7 +14,7 @@ pub trait Parser {
         Map(self, f, PhantomData)
     }
 
-    fn flat_map<B, F>(&'_ self, f: F) -> FlatMap<Self, B, F>
+    fn flat_map<B, F>(self, f: F) -> FlatMap<Self, B, F>
     where
         Self: Sized,
         F: Fn(Self::Output) -> Box<dyn Parser<Input = Self::Input, Output = B>>,
@@ -23,28 +23,46 @@ pub trait Parser {
     }
 }
 
-pub fn pure<I, A: Clone>(a: A) -> Pure<I, A> {
-    Pure(Box::new(a.clone()), PhantomData)
+#[macro_export]
+macro_rules! pure {
+    ($x:expr) => {
+        Box::new(Pure(Box::new($x.clone()),PhantomData))
+    };
 }
 
-pub fn empty<I, O>() -> Empty<I, O> {
-    Empty(PhantomData)
+#[macro_export]
+macro_rules! empty {
+    () => {
+        Box::new(Empty(PhantomData))
+    };
 }
 
-pub fn many<P>(p: &P) -> Many1<P> {
-    Many1(p)
+#[macro_export]
+macro_rules! many {
+    ($e:expr) => {
+        Box::new(Many($e))
+    };
 }
 
-pub fn some<P>(p: &P) -> Many<P>{
-    Many(p)
+#[macro_export]
+macro_rules! some {
+    ($e:expr) => {
+        Box::new(Many1($e).flat_map(|v|{
+            if v.is_empty() {
+                empty!()
+            }else{
+                pure!(v)
+            }
+        }))
+    };
 }
 
 pub fn and<'a,I,O>(p:&'a dyn Parser<Input=I,Output=O>,q: &'a dyn Parser<Input=I,Output=O>) -> And<'a,I,O>{
     And(p,q)
 }
 
-pub struct Map<'a, P, B, F>(&'a P, F, PhantomData<B>);
-impl<P, B, F> Parser for Map<'_, P, B, F>
+pub struct Map<P, B, F>(P, F, PhantomData<B>);
+impl<P, B, F> Parser for Map<P, B, F>
 where
     P: Parser,
     F: Fn(P::Output) -> B,
@@ -56,8 +74,8 @@ where
     }
 }
 
-pub struct FlatMap<'a, P, B, F>(&'a P, F, PhantomData<B>);
-impl<P, B, F> Parser for FlatMap<'_, P, B, F>
+pub struct FlatMap<P, B, F>(P, F, PhantomData<B>);
+impl<P, B, F> Parser for FlatMap<P, B, F>
 where
     P: Parser,
     F: Fn(P::Output) -> Box<dyn Parser<Input = P::Input, Output = B>>,
@@ -91,8 +109,8 @@ impl<I, O> Parser for Empty<I, O> {
     }
 }
 
-pub struct Many<'a, P>(&'a P);
-impl<'a, P, I: Clone, O> Parser for Many<'a, P>
+pub struct Many<P>(P);
+impl<P, I: Clone, O> Parser for Many<P>
 where
     P: Parser<Input = I, Output = O>,
 {
@@ -109,8 +127,8 @@ where
     }
 }
 
-pub struct Many1<'a,P>(&'a P);
-impl <'a,P> Parser for Many1<'a,P>
+pub struct Many1<P>(P);
+impl <P> Parser for Many1<P>
 where P: Parser,P::Input: Clone
 {
     type Input = P::Input;
@@ -149,5 +167,42 @@ impl <'a,I: Clone,O> Parser for Or<'a,I,O>
 
     fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
         self.0.parse(input.clone()).or_else(|| self.1.parse(input))
+    }
+}
+
+pub struct All<'a,I,O>(Vec<&'a dyn Parser<Input=I,Output=O>>);
+impl <'a,I: Clone,O> Parser for All<'a,I,O>{
+    type Input = I;
+    type Output = Vec<O>;
+    fn parse(&self,input: Self::Input) -> Option<(Self::Output,Self::Input)>{
+        let mut v = Vec::new();
+        let mut t = input;
+        for x in self.0.iter(){
+            match x.parse(t){
+                Some((o,i)) => {
+                    v.push(o);
+                    t = i;
+                },
+                None => return None
+            }
+        }
+        Some((v,t.clone()))
+    }
+}
+
+pub struct Any<'a,I,O>(Vec<&'a dyn Parser<Input=I,Output=O>>);
+impl <'a,I: Clone,O> Parser for Any<'a,I,O>{
+    type Input = I;
+    type Output = O;
+    fn parse(&self,input: Self::Input) -> Option<(Self::Output,Self::Input)>{
+        for x in self.0.iter(){
+            match x.parse(input.clone()){
+                Some((o,i)) => {
+                    return Some((o,i))
+                },
+                None => return None
+            }
+        }
+        None
     }
 }
