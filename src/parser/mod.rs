@@ -39,6 +39,11 @@ pub fn some<P>(p: &P) -> Many<P>{
     Many(p)
 }
 
+pub fn and<'a,I,O>(p:&'a dyn Parser<Input=I,Output=O>,q: &'a dyn Parser<Input=I,Output=O>) -> And<'a,I,O>{
+    And(p,q)
+}
+
+
 pub struct Map<'a, P, B, F>(&'a P, F, PhantomData<B>);
 impl<P, B, F> Parser for Map<'_, P, B, F>
 where
@@ -106,8 +111,8 @@ where
 }
 
 pub struct Many1<'a,P>(&'a P);
-impl <'a,P,I: Clone,O> Parser for Many1<'a,P>
-where P: Parser<Input=I,Output = O>,
+impl <'a,P> Parser for Many1<'a,P>
+where P: Parser,P::Input: Clone
 {
     type Input = P::Input;
     type Output = Vec<P::Output>;
@@ -118,10 +123,32 @@ where P: Parser<Input=I,Output = O>,
             v.push(o);
             t = i
         }
-        if v.len() ==0 {
+        if v.is_empty() {
             None
         }else {
             Some((v,t.clone()))
         }
+    }
+}
+
+pub struct And<'a,I,O>(&'a dyn Parser<Input=I,Output=O>,&'a dyn Parser<Input=I,Output=O>);
+impl <'a,I: Clone,O> Parser for And<'a,I,O>
+{
+    type Input = I;
+    type Output = O;
+
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        self.0.parse(input.clone()).and(self.1.parse(input))
+    }
+}
+
+pub struct Or<'a,I,O>(&'a dyn Parser<Input=I,Output=O>,&'a dyn Parser<Input=I,Output=O>);
+impl <'a,I: Clone,O> Parser for Or<'a,I,O>
+{
+    type Input = I;
+    type Output = O;
+
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        self.0.parse(input.clone()).or_else(|| self.1.parse(input))
     }
 }

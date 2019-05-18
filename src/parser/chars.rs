@@ -1,19 +1,19 @@
 use super::*;
-
 pub struct Item<'a>(PhantomData<&'a ()>);
 
 pub static ITEM: Item<'static> = Item(PhantomData);
-
 pub fn item<'a>() -> &'static Item<'a> {
     &ITEM
 }
-
-type CharParser<'a> = Box<dyn Parser<Input = &'a str, Output = char>>;
-pub fn chr<'a>(c: char) -> FlatMap<'static, Item<'a>, char, impl Fn(char) -> CharParser<'a>> {
+pub fn chr<'a>(c: char) -> impl Parser<Input=&'a str,Output=char> {
     sat(move |x| *x == c)
 }
 
-pub fn sat<'a, F>(f: F) -> FlatMap<'static, Item<'a>, char, impl Fn(char) -> CharParser<'a>>
+pub fn digit<'a>() -> impl Parser<Input=&'a str,Output=char>{
+    sat(move |x| x.is_digit(10))
+}
+
+pub fn sat<'a, F>(f: F) -> impl Parser<Input=&'a str,Output=char>
 where
     F: Fn(&char) -> bool,
 {
@@ -31,8 +31,6 @@ pub fn collect(v: Vec<char>) -> String{
 }
 
 // pub fn letter()
-
-type StringParser<'a> = Box<dyn Parser<Input = &'a str, Output = &'a str>>;
 
 impl<'a> Parser for Item<'a> {
     type Input = &'a str;
