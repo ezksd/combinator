@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 use std::marker::PhantomData;
-
-mod chars;
+pub mod chars;
 pub trait Parser {
     type Input;
     type Output;
@@ -26,7 +25,7 @@ pub trait Parser {
 #[macro_export]
 macro_rules! pure {
     ($x:expr) => {
-        Box::new(Pure(Box::new($x.clone()),PhantomData))
+        Box::new(Pure(Box::new($x.clone()), PhantomData))
     };
 }
 
@@ -47,20 +46,38 @@ macro_rules! many {
 #[macro_export]
 macro_rules! some {
     ($e:expr) => {
-        Box::new(Many($e).flat_map(|v|{
-            if v.is_empty() {
-                empty!()
-            }else{
-                pure!(v)
-            }
-        }))
+        Box::new(Many($e).flat_map(|v| if v.is_empty() { empty!() } else { pure!(v) }))
     };
 }
 
+#[macro_export]
+macro_rules! all {
+    ($($e:expr),+) => {
+        {
+            let mut v:Vec<Box<dyn Parser<Input=_,Output=_>>> = Vec::new();
+            $(v.push(Box::new($e));)*
+            Box::new(All(v))
+        }
+    };
+}
 
+#[macro_export]
+macro_rules! any {
+    ($($e:expr),+) => {
+        {
+            let mut v:Vec<Box<dyn Parser<Input=_,Output=_>>> = Vec::new();
+            $(v.push(Box::new($e));)*
+            // Box::new(Any(v))
+            Any(v)
+        }
+    };
+}
 
-pub fn and<'a,I,O>(p:&'a dyn Parser<Input=I,Output=O>,q: &'a dyn Parser<Input=I,Output=O>) -> And<'a,I,O>{
-    And(p,q)
+#[macro_export]
+macro_rules! and {
+    ($e1:expr,$e2:expr) => {
+        Box::new(And(e1, e2))
+    };
 }
 
 pub struct Map<P, B, F>(P, F, PhantomData<B>);
@@ -129,61 +146,73 @@ where
     }
 }
 
-pub struct And<'a,I,O>(&'a dyn Parser<Input=I,Output=O>,&'a dyn Parser<Input=I,Output=O>);
-impl <'a,I: Clone,O> Parser for And<'a,I,O>
-{
-    type Input = I;
-    type Output = O;
-
-    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
-        self.0.parse(input.clone()).and(self.1.parse(input))
-    }
-}
-
-pub struct Or<'a,I,O>(&'a dyn Parser<Input=I,Output=O>,&'a dyn Parser<Input=I,Output=O>);
-impl <'a,I: Clone,O> Parser for Or<'a,I,O>
-{
-    type Input = I;
-    type Output = O;
-
-    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
-        self.0.parse(input.clone()).or_else(|| self.1.parse(input))
-    }
-}
-
-pub struct All<'a,I,O>(Vec<&'a dyn Parser<Input=I,Output=O>>);
-impl <'a,I: Clone,O> Parser for All<'a,I,O>{
+pub struct All<I, O>(Vec<Box<dyn Parser<Input = I, Output = O>>>);
+impl<'a, I: Clone, O> Parser for All<I, O> {
     type Input = I;
     type Output = Vec<O>;
-    fn parse(&self,input: Self::Input) -> Option<(Self::Output,Self::Input)>{
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
         let mut v = Vec::new();
         let mut t = input;
-        for x in self.0.iter(){
-            match x.parse(t){
-                Some((o,i)) => {
+        for x in self.0.iter() {
+            match x.parse(t) {
+                Some((o, i)) => {
                     v.push(o);
                     t = i;
-                },
-                None => return None
+                }
+                None => return None,
             }
         }
-        Some((v,t.clone()))
+        Some((v, t.clone()))
     }
 }
 
-pub struct Any<'a,I,O>(Vec<&'a dyn Parser<Input=I,Output=O>>);
-impl <'a,I: Clone,O> Parser for Any<'a,I,O>{
+pub struct Any<I, O>(Vec<Box<dyn Parser<Input = I, Output = O>>>);
+impl<'a, I: Clone, O> Parser for Any<I, O> {
     type Input = I;
     type Output = O;
-    fn parse(&self,input: Self::Input) -> Option<(Self::Output,Self::Input)>{
-        for x in self.0.iter(){
-            match x.parse(input.clone()){
-                Some((o,i)) => {
-                    return Some((o,i))
-                },
-                None => return None
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        for x in self.0.iter() {
+            if let Some((o, i)) = x.parse(input.clone()) {
+                return Some((o, i));
             }
         }
         None
     }
+}
+
+pub struct And<P, Q>(P, Q);
+impl<I, A, B, P, Q> Parser for And<P, Q>
+where
+    P: Parser<Input = I, Output = A>,
+    Q: Parser<Input = I, Output = B>,
+{
+    type Input = I;
+    type Output = (A, B);
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        self.0
+            .parse(input)
+            .and_then(|(o1, i)| self.1.parse(i).map(|(o2, i1)| ((o1, o2), i1)))
+    }
+}
+
+use Either::{Left, Right};
+pub struct Or<P, Q>(P, Q);
+impl<I: Clone, A, B, P, Q> Parser for Or<P, Q>
+where
+    P: Parser<Input = I, Output = A>,
+    Q: Parser<Input = I, Output = B>,
+{
+    type Input = I;
+    type Output = Either<A, B>;
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        self.0
+            .parse(input.clone())
+            .map(|(o, i)| (Left(o), i))
+            .or_else(|| self.1.parse(input).map(|(o, i)| (Right(o), i)))
+    }
+}
+
+pub enum Either<A, B> {
+    Left(A),
+    Right(B),
 }
