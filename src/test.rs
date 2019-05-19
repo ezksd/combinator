@@ -16,5 +16,8 @@ fn test1() {
         var().parse("abac_123,,,"),
         Some((String::from("abac_123"), ",,,"))
     );
-    assert_eq!(letter().parse("abc123,hehe"),Some((String::from("abc123"),",hehe")));
+    assert_eq!(
+        letter().parse("abc123,hehe"),
+        Some((String::from("abc123"), ",hehe"))
+    );
 }

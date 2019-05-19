@@ -22,31 +22,36 @@ pub trait Parser {
     }
 }
 
+pub fn pure<I, O: Clone>(o: O) -> Pure<I, O> {
+    Pure(Box::new(o.clone()), PhantomData)
+}
+
+pub fn empty<I, O>() -> Empty<I, O> {
+    Empty(PhantomData)
+}
+
 #[macro_export]
 macro_rules! pure {
     ($x:expr) => {
-        Box::new(Pure(Box::new($x.clone()), PhantomData))
+        Box::new(pure($x))
     };
 }
 
 #[macro_export]
 macro_rules! empty {
     () => {
-        Box::new(Empty(PhantomData))
+        Box::new(empty())
     };
 }
 
-#[macro_export]
-macro_rules! many {
-    ($e:expr) => {
-        Box::new(Many($e))
-    };
+pub fn many<P>(p: P) -> Many<P> {
+    Many(p)
 }
 
 #[macro_export]
 macro_rules! some {
     ($e:expr) => {
-        Box::new(Many($e).flat_map(|v| if v.is_empty() { empty!() } else { pure!(v) }))
+        Many($e).flat_map(|v| if v.is_empty() { empty!() } else { pure!(v) })
     };
 }
 
@@ -56,7 +61,7 @@ macro_rules! all {
         {
             let mut v:Vec<Box<dyn Parser<Input=_,Output=_>>> = Vec::new();
             $(v.push(Box::new($e));)*
-            Box::new(All(v))
+            All(v)
         }
     };
 }
@@ -67,17 +72,21 @@ macro_rules! any {
         {
             let mut v:Vec<Box<dyn Parser<Input=_,Output=_>>> = Vec::new();
             $(v.push(Box::new($e));)*
-            // Box::new(Any(v))
             Any(v)
         }
     };
 }
 
-#[macro_export]
-macro_rules! and {
-    ($e1:expr,$e2:expr) => {
-        Box::new(And(e1, e2))
-    };
+pub fn and<P, Q>(p: P, q: Q) -> And<P, Q> {
+    And(p, q)
+}
+
+pub fn or<P, Q>(p: P, q: Q) -> Or<P, Q> {
+    Or(p, q)
+}
+
+pub fn opt<P>(p: P) -> Opt<P> {
+    Opt(p)
 }
 
 pub struct Map<P, B, F>(P, F, PhantomData<B>);
@@ -209,6 +218,22 @@ where
             .parse(input.clone())
             .map(|(o, i)| (Left(o), i))
             .or_else(|| self.1.parse(input).map(|(o, i)| (Right(o), i)))
+    }
+}
+
+pub struct Opt<P>(P);
+impl<P> Parser for Opt<P>
+where
+    P: Parser,
+    P::Input: Clone,
+{
+    type Input = P::Input;
+    type Output = Option<P::Output>;
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        match self.0.parse(input.clone()) {
+            Some((o, i)) => Some((Some(o), i)),
+            None => Some((None, input)),
+        }
     }
 }
 
