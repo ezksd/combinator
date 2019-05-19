@@ -47,7 +47,7 @@ macro_rules! many {
 #[macro_export]
 macro_rules! some {
     ($e:expr) => {
-        Box::new(Many1($e).flat_map(|v|{
+        Box::new(Many($e).flat_map(|v|{
             if v.is_empty() {
                 empty!()
             }else{
@@ -56,6 +56,8 @@ macro_rules! some {
         }))
     };
 }
+
+
 
 pub fn and<'a,I,O>(p:&'a dyn Parser<Input=I,Output=O>,q: &'a dyn Parser<Input=I,Output=O>) -> And<'a,I,O>{
     And(p,q)
@@ -124,27 +126,6 @@ where
             t = i
         }
         Some((v, t.clone()))
-    }
-}
-
-pub struct Many1<P>(P);
-impl <P> Parser for Many1<P>
-where P: Parser,P::Input: Clone
-{
-    type Input = P::Input;
-    type Output = Vec<P::Output>;
-    fn parse(&self,input: Self::Input) -> Option<(Self::Output,Self::Input)>{
-        let mut v = Vec::new();
-        let mut t = input;
-        while let Some((o, i)) = self.0.parse(t.clone()) {
-            v.push(o);
-            t = i
-        }
-        if v.is_empty() {
-            None
-        }else {
-            Some((v,t.clone()))
-        }
     }
 }
 
