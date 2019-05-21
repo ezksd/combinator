@@ -1,6 +1,4 @@
-#![allow(dead_code)]
 use std::marker::PhantomData;
-pub mod chars;
 pub trait Parser {
     type Input;
     type Output;
@@ -304,20 +302,20 @@ where
     type Input = P::Input;
     type Output = Vec<P::Output>;
     fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
-        let mut t = self.1;
-        let mut v = Vec::new();
-        let mut r = input;
-        while t > 0 {
-            match self.0.parse(r) {
+        let mut n = self.1;
+        let mut results = Vec::new();
+        let mut t = input;
+        while n > 0 {
+            match self.0.parse(t) {
                 Some((o, i)) => {
-                    v.push(o);
-                    r = i;
-                    t -= 1;
+                    results.push(o);
+                    t = i;
+                    n -= 1;
                 }
                 None => return None,
             }
         }
-        Some((v, r))
+        Some((results, t))
     }
 }
 
@@ -345,3 +343,5 @@ where
         p.parse(input)
     }
 }
+
+pub mod chars;

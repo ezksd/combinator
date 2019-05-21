@@ -1,28 +1,34 @@
 use super::parser::chars::*;
 use super::parser::*;
+#[macro_use]
+macro_rules! p_test {
+    ($p:expr,$i:expr) => {
+        assert_eq!($p.parse($i),None)
+    };
+    ($p:expr,$i:expr,$t:expr,$o:expr) => {
+        assert_eq!($p.parse($i),Some(($t,$o)))
+    };
+}
 #[test]
-fn test1() {
-    assert_eq!(item().parse("123"), Some(('1', "23")));
-    assert_eq!(item().parse(""), None);
-    assert_eq!(chr('1').parse("123"), Some(('1', "23")));
-    assert_eq!(chr('1').parse("023"), None);
-    assert_eq!(digit().parse("123"), Some((1, "23")));
-    assert_eq!(digit().parse("abc"), None);
-    assert_eq!(number().parse("123abc"), Some((123, "abc")));
-    assert_eq!(alpha().parse("abc"), Some(('a', "bc")));
-    assert_eq!(alpha().parse("123"), None);
-    assert_eq!(sat(|x| x == '$').parse("$100"), Some(('$', "100")));
-    assert_eq!(sat(|x| x == '$').parse("^100"), None);
-    assert_eq!(
-        var().parse("abac_123,,,"),
-        Some((String::from("abac_123"), ",,,"))
-    );
-    assert_eq!(
-        letter("abc123").parse("abc123,hehe"),
-        Some((String::from("abc123"), ",hehe"))
-    );
-    assert_eq!(
-        repeat(digit(), 3).parse("123456"),
-        Some((vec![1, 2, 3], "456"))
-    );
+fn test_char() {
+    p_test!(item(),"");
+    p_test!(item(),"123",'1', "23");
+    p_test!(chr('1'),"123",'1', "23");
+    p_test!(chr('1'),"023");
+    p_test!(digit(),"123", 1, "23");
+    p_test!(digit(),"abc");
+    p_test!(number(),"123abc", 123, "abc");
+    p_test!(spaces()," \n\r\t",(),"");
+    p_test!(alpha(),"abc",'a', "bc");
+    p_test!(alpha(),"123");
+    p_test!(sat(|x| x == '$'),"$100",'$', "100");
+    p_test!(sat(|x| x == '$'),"^100");
+    p_test!(var(),"abac_123,,,",String::from("abac_123"), ",,,");
+    p_test!(letter("abc123"),"abc123,hehe",String::from("abc123"), ",hehe");
+    p_test!(repeat(digit(), 3),"123456",vec![1, 2, 3], "456");
+}
+
+#[test]
+fn test_json(){
+    
 }

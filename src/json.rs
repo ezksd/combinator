@@ -1,9 +1,7 @@
-#![allow(dead_code)]
-use crate::Either::*;
-use crate::*;
-use parser::chars::*;
-use parser::*;
 use std::collections::HashMap;
+use crate::Either::{Left,Right};
+use crate::parser::chars::*;
+use crate::parser::*;
 use JsonValue::*;
 #[derive(Debug, PartialEq, Clone)]
 pub enum JsonValue {
@@ -77,7 +75,6 @@ fn json_array<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
             }
             None => JsonArray(Vec::new()),
         })
-        // prefix!(spaces(),)
     }
     around!(token!('['), prefix!(spaces(), value()), token!(']'))
 }
@@ -163,13 +160,4 @@ fn json_bool<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
 
 fn json_null<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
     prefix!(spaces(), letter("null")).map(|_| JsonNull)
-}
-
-#[test]
-fn test() {
-    // assert_eq!(json_number().parse(" 123456"), Some((JsonInteger(123456),"")));
-    assert_eq!(
-        json_value().parse(" \"-128.123\""),
-        Some((JsonFloat(-128.123), ""))
-    );
 }
