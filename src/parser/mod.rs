@@ -20,39 +20,40 @@ pub trait Parser {
     {
         FlatMap(self, f, PhantomData)
     }
+
+    fn boxed(self) -> Box<Self>
+    where
+        Self: Sized,
+    {
+        Box::new(self)
+    }
+
+    fn throw(self) -> Throw<Self>
+    where
+        Self: Sized,
+    {
+        Throw(self)
+    }
 }
 
-pub fn pure<I, O: Clone>(o: O) -> Pure<I, O> {
-    Pure(Box::new(o.clone()), PhantomData)
+pub fn pure<I, O: Clone>(o: O) -> Box<Pure<I, O>> {
+    Pure(Box::new(o.clone()), PhantomData).boxed()
 }
 
-pub fn empty<I, O>() -> Empty<I, O> {
-    Empty(PhantomData)
-}
-
-#[macro_export]
-macro_rules! pure {
-    ($x:expr) => {
-        Box::new(pure($x))
-    };
-}
-
-#[macro_export]
-macro_rules! empty {
-    () => {
-        Box::new(empty())
-    };
+pub fn empty<I, O>() -> Box<Empty<I, O>> {
+    Empty(PhantomData).boxed()
 }
 
 pub fn many<P>(p: P) -> Many<P> {
     Many(p)
 }
 
-#[macro_export]
-macro_rules! some {
-    ($e:expr) => {
-        Many($e).flat_map(|v| if v.is_empty() { empty!() } else { pure!(v) })
-    };
+pub fn many1<P>(p: P) -> Many1<P> {
+    Many1(p)
+}
+
+pub fn lazy<P>(f: fn() -> P) -> Lazy<P> {
+    Lazy(f)
 }
 
 #[macro_export]
@@ -89,6 +90,40 @@ pub fn opt<P>(p: P) -> Opt<P> {
     Opt(p)
 }
 
+pub fn repeat<P>(p: P, i: i32) -> Repeat<P> {
+    Repeat(p, i)
+}
+
+#[macro_export]
+macro_rules! prefix {
+    ($p:expr,$q:expr) => {
+        and($p, $q).map(|(_, x)| x)
+    };
+    ($p1:expr, $p2:expr, $x:expr) => {
+        and(and($p1, $p2), $x).map(|(_, x)| x)
+    };
+}
+
+#[macro_export]
+macro_rules! suffix {
+    ($p:expr,$q:expr) => {
+        and($p, $q).map(|(x, _)| x)
+    };
+}
+
+#[macro_export]
+macro_rules! infix {
+    ($p:expr, $i:expr, $q:expr) => {
+        and($p, prefix!($i, $q))
+    };
+}
+
+#[macro_export]
+macro_rules! around {
+    ($p:expr,$x:expr,$q:expr) => {
+        prefix!($p, suffix!($x, $q))
+    };
+}
 pub struct Map<P, B, F>(P, F, PhantomData<B>);
 impl<P, B, F> Parser for Map<P, B, F>
 where
@@ -155,7 +190,30 @@ where
     }
 }
 
-pub struct All<I, O>(Vec<Box<dyn Parser<Input = I, Output = O>>>);
+pub struct Many1<P>(P);
+impl<P, I: Clone, O> Parser for Many1<P>
+where
+    P: Parser<Input = I, Output = O>,
+{
+    type Input = P::Input;
+    type Output = Vec<P::Output>;
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        let mut v = Vec::new();
+        let mut t = input;
+        while let Some((o, i)) = self.0.parse(t.clone()) {
+            v.push(o);
+            t = i
+        }
+
+        if v.is_empty() {
+            None
+        } else {
+            Some((v, t.clone()))
+        }
+    }
+}
+
+pub struct All<I, O>(pub Vec<Box<dyn Parser<Input = I, Output = O>>>);
 impl<'a, I: Clone, O> Parser for All<I, O> {
     type Input = I;
     type Output = Vec<O>;
@@ -175,7 +233,7 @@ impl<'a, I: Clone, O> Parser for All<I, O> {
     }
 }
 
-pub struct Any<I, O>(Vec<Box<dyn Parser<Input = I, Output = O>>>);
+pub struct Any<I, O>(pub Vec<Box<dyn Parser<Input = I, Output = O>>>);
 impl<'a, I: Clone, O> Parser for Any<I, O> {
     type Input = I;
     type Output = O;
@@ -203,8 +261,8 @@ where
             .and_then(|(o1, i)| self.1.parse(i).map(|(o2, i1)| ((o1, o2), i1)))
     }
 }
-
-use Either::{Left, Right};
+use crate::Either;
+use crate::Either::{Left, Right};
 pub struct Or<P, Q>(P, Q);
 impl<I: Clone, A, B, P, Q> Parser for Or<P, Q>
 where
@@ -237,7 +295,53 @@ where
     }
 }
 
-pub enum Either<A, B> {
-    Left(A),
-    Right(B),
+pub struct Repeat<P>(P, i32);
+impl<P> Parser for Repeat<P>
+where
+    P: Parser,
+    P::Input: Clone,
+{
+    type Input = P::Input;
+    type Output = Vec<P::Output>;
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        let mut t = self.1;
+        let mut v = Vec::new();
+        let mut r = input;
+        while t > 0 {
+            match self.0.parse(r) {
+                Some((o, i)) => {
+                    v.push(o);
+                    r = i;
+                    t -= 1;
+                }
+                None => return None,
+            }
+        }
+        Some((v, r))
+    }
+}
+
+pub struct Throw<P>(P);
+impl<P> Parser for Throw<P>
+where
+    P: Parser,
+{
+    type Input = P::Input;
+    type Output = ();
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        self.0.parse(input).map(|(_, i)| ((), i))
+    }
+}
+
+pub struct Lazy<P>(fn() -> P);
+impl<P> Parser for Lazy<P>
+where
+    P: Parser,
+{
+    type Input = P::Input;
+    type Output = P::Output;
+    fn parse(&self, input: Self::Input) -> Option<(Self::Output, Self::Input)> {
+        let p = self.0();
+        p.parse(input)
+    }
 }
