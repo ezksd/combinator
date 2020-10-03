@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-use crate::Either::{Left,Right};
 use crate::parser::chars::*;
 use crate::parser::*;
+use std::collections::HashMap;
 use JsonValue::*;
 #[derive(Debug, PartialEq, Clone)]
 pub enum JsonValue {
@@ -21,28 +20,25 @@ macro_rules! token {
     };
 }
 
-pub fn json_value<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
+pub fn json_value<'a>() -> impl Parser<&'a str, JsonValue> {
     any!(
-        json_object(),
-        json_array(),
-        json_string().map(JsonString),
-        json_number(),
-        json_bool(),
-        json_null()
+        json_object,
+        json_array,
+        json_string.map(JsonString), // json_number(),
+        json_number,
+        json_bool,
+        json_null
     )
 }
 
-fn json_object<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
-    fn entry<'a>() -> impl Parser<Input = &'a str, Output = (String, JsonValue)> {
-        prefix!(
-            spaces(),
-            infix!(json_string(), token!(':'), lazy(json_value))
-        )
+fn json_object(input: &str) -> Option<(JsonValue, &str)> {
+    fn entry(input: &str) -> Option<((String, JsonValue), &str)> {
+        prefix!(spaces(), infix!(json_string, token!(':'), lazy(json_value))).parse(input)
     }
 
-    fn map<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
+    fn map<'a>() -> impl Parser<&'a str, JsonValue> {
         opt(
-            and(entry(), many(prefix!(token!(','), entry()))).map(|(x, xs)| {
+            and(entry, many(prefix!(token!(','), entry))).map(|(x, xs)| {
                 let mut m = HashMap::new();
                 m.insert(x.0, Box::new(x.1));
                 for p in xs {
@@ -56,11 +52,11 @@ fn json_object<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
             None => JsonObject(HashMap::new()),
         })
     }
-    around!(token!('{'), map(), token!('}'))
+    around!(token!('{'), map(), token!('}')).parse(input)
 }
 
-fn json_array<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
-    fn value<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
+pub fn json_array(input: &str) -> Option<(JsonValue, &str)> {
+    fn value<'a>() -> impl Parser<&'a str, JsonValue> {
         opt(and(
             lazy(json_value),
             many(prefix!(token!(','), lazy(json_value))),
@@ -76,58 +72,60 @@ fn json_array<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
             None => JsonArray(Vec::new()),
         })
     }
-    around!(token!('['), prefix!(spaces(), value()), token!(']'))
+    around!(token!('['), prefix!(spaces(), value()), token!(']')).parse(input)
 }
 
-fn json_string<'a>() -> impl Parser<Input = &'a str, Output = String> {
-    fn control<'a>() -> impl Parser<Input = &'a str, Output = char> {
-        prefix!(chr('\\'), or(item(), prefix!(chr('u'), repeat(digit(), 4)))).flat_map(
-            |e| match e {
-                Left(c) => match c {
-                    '"' | '\\' | '/' => pure(c),
-                    'b' => pure('\x08'),
-                    't' => pure('\x12'),
-                    'n' => pure('\x10'),
-                    'f' => pure('\x13'),
-                    'r' => pure('\x09'),
-                    _ => empty(),
-                },
-                Right(v) => {
-                    let mut t = 0;
-                    for i in v.iter() {
-                        t = t * 10 + i;
-                    }
-                    pure(std::char::from_u32(t).unwrap())
-                }
-            },
+fn json_string(input: &str) -> Option<(String, &str)> {
+    fn control(input: &str) -> Option<(char, &str)> {
+        prefix!(
+            chr('\\'),
+            or::<&str, char, Vec<u32>, _, _>(item, prefix!(chr('u'), repeat(digit(), 4)))
         )
+        .map(|e| match e {
+            Either::Left(c) => match c {
+                '"' | '\\' | '/' => c,
+                'b' => '\x08',
+                't' => '\x12',
+                'n' => '\x10',
+                'f' => '\x13',
+                'r' => '\x09',
+                _ => c, // _ => empty(),
+            },
+            Either::Right(v) => {
+                let mut t = 0;
+                for i in v.iter() {
+                    t = t * 10 + i;
+                }
+                std::char::from_u32(t).unwrap()
+            }
+        })
+        .parse(input)
     }
 
-    fn other<'a>() -> impl Parser<Input = &'a str, Output = char> {
-        item().flat_map(|x| match x {
-            '"' | '\\' => empty(),
-            _ => pure(x),
-        })
+    fn other(input: &str) -> Option<(char, &str)> {
+        item.filter(|x| *x != '"' && *x != '\\').parse(input)
     }
-    around!(token!('"'), many(any!(control(), other())), chr('"')).map(|v| collect(&v))
+    around!(token!('"'), many(any!(control, other)), chr('"'))
+        .map(|v| collect(&v))
+        .parse(input)
 }
 
-fn json_number<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
-    fn flag<'a>() -> impl Parser<Input = &'a str, Output = i32> {
+fn json_number(input: &str) -> Option<(JsonValue, &str)> {
+    fn flag<'a>() -> impl Parser<&'a str, i32> {
         prefix!(spaces(), opt(chr('-'))).map(|x| match x {
             Some(_) => -1,
             None => 1,
         })
     }
 
-    fn int<'a>() -> impl Parser<Input = &'a str, Output = u32> {
-        or(chr('0'), number()).map(|x| match x {
-            Left(_) => 0,
-            Right(i) => i,
+    fn int<'a>() -> impl Parser<&'a str, u32> {
+        or::<&str, char, u32, _, _>(chr('0'), number()).map(|x| match x {
+            Either::Left(_) => 0,
+            Either::Right(i) => i,
         })
     }
 
-    fn float<'a>() -> impl Parser<Input = &'a str, Output = Option<f32>> {
+    fn float<'a>() -> impl Parser<&'a str, Option<f32>> {
         opt(prefix!(chr('.'), many1(digit())).map(|mut v| {
             let mut f = 0 as f32;
             while let Some(i) = v.pop() {
@@ -137,27 +135,32 @@ fn json_number<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
         }))
     }
 
-    flag().flat_map(|g| {
-        int()
-            .flat_map(move |i| {
-                float()
-                    .map(move |o| match o {
-                        Some(f) => JsonFloat(g as f32 * (i as f32 + f)),
-                        None => JsonInteger(g * i as i32),
-                    })
-                    .boxed()
+    flag()
+        .flat_map(|g| {
+            int().flat_map(move |i| {
+                float().map(move |o| match o {
+                    Some(f) => JsonFloat(g as f32 * (i as f32 + f)),
+                    None => JsonInteger(g * i as i32),
+                })
             })
-            .boxed()
-    })
+        })
+        .parse(input)
 }
 
-fn json_bool<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
-    prefix!(spaces(), or(letter("true"), letter("false"))).map(|o| match o {
-        Left(_) => JsonBool(true),
-        Right(_) => JsonBool(false),
+fn json_bool(input: &str) -> Option<(JsonValue, &str)> {
+    prefix!(
+        spaces(),
+        or::<&str, String, String, _, _>(letter("true"), letter("false"))
+    )
+    .map(|o| match o {
+        Either::Left(_) => JsonBool(true),
+        Either::Right(_) => JsonBool(false),
     })
+    .parse(input)
 }
 
-fn json_null<'a>() -> impl Parser<Input = &'a str, Output = JsonValue> {
-    prefix!(spaces(), letter("null")).map(|_| JsonNull)
+fn json_null(input: &str) -> Option<(JsonValue, &str)> {
+    prefix!(spaces(), letter("null"))
+        .map(|_| JsonNull)
+        .parse(input)
 }
